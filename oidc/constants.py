@@ -5,6 +5,7 @@ AUTHORIZATION_ENDPOINT = getattr(settings, "OIDC_AUTHORIZATION_ENDPOINT", None)
 TOKEN_ENDPOINT = getattr(settings, "OIDC_TOKEN_ENDPOINT", None)
 CLIENT_ID = getattr(settings, "OIDC_CLIENT_ID", None)
 CLIENT_SECRET = getattr(settings, "OIDC_CLIENT_SECRET", None)
+USER_ID = getattr(settings, "OIDC_USER_ID", "sub")
 USERINFO_ENDPOINT = getattr(settings, "OIDC_USERINFO_ENDPOINT", None)
 SCOPE = getattr(settings, "OIDC_SCOPE", "openid email")
 WELL_KNOWN_SCHEME = "/.well-known/openid-configuration"
