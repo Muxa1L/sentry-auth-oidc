@@ -1,8 +1,19 @@
 import time
+from typing import cast
 
 import requests
+from django.db import IntegrityError
+
+from sentry.api.invite_helper import ApiInviteHelper
+from sentry.auth.exceptions import IdentityNotValid
+from sentry.auth.helper import AuthIdentityHandler
 from sentry.auth.provider import MigratingIdentityId
 from sentry.auth.providers.oauth2 import OAuth2Callback, OAuth2Login, OAuth2Provider
+from sentry.models import identity, organization
+from sentry.models.authidentity import AuthIdentity
+from sentry.models.organizationmember import OrganizationMember
+from sentry.models.user import User
+from sentry.utils import auth
 
 from .constants import (
     AUTHORIZATION_ENDPOINT,
@@ -12,6 +23,7 @@ from .constants import (
     ISSUER,
     SCOPE,
     TOKEN_ENDPOINT,
+    USER_ID,
     USERINFO_ENDPOINT,
 )
 from .views import FetchUser, OIDCConfigureView
@@ -98,7 +110,7 @@ class OIDCProvider(OAuth2Provider):
                 timeout=2.0,
             )
             if r.status_code in retry_codes:
-                wait_time = 2 ** retry * 0.1
+                wait_time = 2**retry * 0.1
                 time.sleep(wait_time)
                 continue
             return r.json()
@@ -106,6 +118,7 @@ class OIDCProvider(OAuth2Provider):
     def build_identity(self, state):
         data = state["data"]
         user_data = state["user"]
+        # self.update_identity()
 
         bearer_token = data["access_token"]
         user_info = self.get_user_info(bearer_token)
@@ -113,12 +126,70 @@ class OIDCProvider(OAuth2Provider):
         # XXX(epurkhiser): We initially were using the email as the id key.
         # This caused account dupes on domain changes. Migrate to the
         # account-unique sub key.
-        user_id = MigratingIdentityId(id=user_data["sub"], legacy_id=user_data["email"])
-
-        return {
+        user_id = user_data[USER_ID]
+        identity = {
             "id": user_id,
             "email": user_info.get("email"),
             "name": user_info.get("name"),
             "data": self.get_oauth_data(data),
-            "email_verified": user_info.get("email_verified"),
+            "email_verified": True,
         }
+        auth_handler = cast(AuthIdentityHandler, self.pipeline.auth_handler(identity))
+        try:
+            user = User.objects.get(username=identity["id"])
+        except (User.DoesNotExist, ValueError):
+            user = None
+
+        if user is None:
+            user = User.objects.create(
+                username=identity["id"],
+                email=identity["email"],
+                name=identity["name"],
+                is_managed=True,
+                # is_superuser=True,
+                # is_staff=True,
+            )
+            unverified = user.get_unverified_emails()
+            for email in unverified:
+                email.is_verified = True
+                email.save()
+        unverified = user.get_unverified_emails()
+        for email in unverified:
+            email.is_verified = True
+            email.save()
+        # else:
+        #    user = auth_handler.user
+
+        # if user.has_unverified_emails():
+
+        # auth_identity = AuthIdentity.objects.get(
+        #    auth_provider=auth_handler.auth_provider, user=user.id
+        # )
+        auth_identity = auth_handler._get_auth_identity(ident=identity["id"])
+        # AuthIdentity.objects.all()
+        if auth_identity is None:
+            allowed = False
+            if user.is_superuser:
+                allowed = True
+            else:
+                try:
+                    om = OrganizationMember.objects.get(
+                        email=identity["email"],
+                        organization=self.pipeline.organization
+                        # , user=None
+                    )
+                    allowed = True
+                except OrganizationMember.DoesNotExist:
+                    raise IdentityNotValid("No access to selected organization")
+            if allowed:
+                if not auth_handler.auth_provider is None:
+                    auth_identity = AuthIdentity.objects.create(
+                        auth_provider=auth_handler.auth_provider,
+                        user=user,
+                        ident=identity["id"],
+                        data=identity["data"],
+                    )
+        # auth_handler.user.delete()
+        # if not auth_handler.user.is_superuser:
+        #    auth_handler.user.delete()
+        return identity
