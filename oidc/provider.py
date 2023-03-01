@@ -180,10 +180,10 @@ class OIDCProvider(OAuth2Provider):
                     )
                     allowed = True
                 except OrganizationMember.DoesNotExist:
-                    if self.pipeline.organization == "public":
+                    if self.pipeline.organization.slug == "public":
                         allowed = True
                     else:
-                        raise IdentityNotValid("No access to selected organization")
+                        raise IdentityNotValid("No access to selected organization " + self.pipeline.organization)
             if allowed:
                 if not auth_handler.auth_provider is None:
                     auth_identity = AuthIdentity.objects.create(
