@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "muxa1l-sentry-auth-oidc"
-version = "5.0.2"
+version = "5.0.3"
 description = "OpenID Connect authentication provider for Sentry"
 authors = ["Max Wittig <max.wittig@siemens.com>", "Mikhail Davydenko <mimih1990@gmail.com>"]
 license = "Apache 2.0"
